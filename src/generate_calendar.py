@@ -82,9 +82,10 @@ class GameEvent:
 class HeaderLookup:
     exact: Dict[str, int]
     normalized: Dict[str, int]
+    headers: Tuple[str, ...]
 
 
-def _build_summary(uid: str, team: str, going: bool, tix: str) -> str:
+def _build_summary(uid: str, team: str, going: bool, tix: str, tix_is_count: bool) -> str:
     prefix = "PP" if going else "TV"
     tix = tix.strip()
     try:
@@ -94,7 +95,8 @@ def _build_summary(uid: str, team: str, going: bool, tix: str) -> str:
     home_away = "vs" if uid_num < 82 else "@"
     summary = f"{prefix}: {home_away} {team}".strip()
     if going and tix:
-        summary = f"{summary} ({tix} tix)"
+        ticket_text = f"{tix} tix" if tix_is_count else tix
+        summary = f"{summary} ({ticket_text})"
     return summary
 
 
@@ -133,7 +135,11 @@ def _build_header_lookup(header_row: List[str]) -> HeaderLookup:
         if normalized_key:
             normalized_map.setdefault(normalized_key, idx)
 
-    return HeaderLookup(exact=exact_map, normalized=normalized_map)
+    return HeaderLookup(
+        exact=exact_map,
+        normalized=normalized_map,
+        headers=tuple(str(value) for value in header_row),
+    )
 
 
 def _find_column_index(header_lookup: HeaderLookup, *candidates: str) -> Optional[int]:
@@ -155,7 +161,15 @@ def _get_cell(row: List[str], idx: int) -> str:
         return ""
     return row[idx]
 
+
 def _get_optional_cell(row: List[str], header_lookup: HeaderLookup, key: str) -> str:
+    value, _ = _get_optional_cell_with_header(row, header_lookup, key)
+    return value
+
+
+def _get_optional_cell_with_header(
+    row: List[str], header_lookup: HeaderLookup, key: str
+) -> Tuple[str, Optional[str]]:
     candidates: List[str] = []
     if key in OPTIONAL_COLUMNS:
         candidates.append(OPTIONAL_COLUMNS[key])
@@ -164,8 +178,14 @@ def _get_optional_cell(row: List[str], header_lookup: HeaderLookup, key: str) ->
     idx = _find_column_index(header_lookup, *candidates)
     if idx is not None:
         value = _get_cell(row, idx)
-        return str(value).strip()
-    return ""
+        return str(value).strip(), header_lookup.headers[idx]
+    return "", None
+
+
+def _tix_value_is_count(header: Optional[str]) -> bool:
+    if not header:
+        return False
+    return "$" not in str(header)
 
 
 def _iter_events(values: List[List[str]]) -> Iterable[GameEvent]:
@@ -190,7 +210,7 @@ def _iter_events(values: List[List[str]]) -> Iterable[GameEvent]:
         team = _get_cell(row, required_indexes["team"]).strip()
         going_raw = _get_cell(row, required_indexes["going"]).strip()
         giveaway = _get_optional_cell(row, header_lookup, "giveaway")
-        tix = _get_optional_cell(row, header_lookup, "tix")
+        tix, tix_header = _get_optional_cell_with_header(row, header_lookup, "tix")
 
         if not date_str or not time_str or not team:
             raise RuntimeError(f"Row for UID {uid} missing required fields")
@@ -198,7 +218,9 @@ def _iter_events(values: List[List[str]]) -> Iterable[GameEvent]:
         start_utc = _parse_datetime(date_str, time_str)
         end_utc = start_utc + timedelta(hours=DURATION_HOURS)
         going = _parse_going(going_raw)
-        summary = _build_summary(uid, team, going, tix)
+        summary = _build_summary(
+            uid, team, going, tix, _tix_value_is_count(tix_header)
+        )
         description = f"Giveaway: {giveaway}" if giveaway else None
 
         yield GameEvent(
