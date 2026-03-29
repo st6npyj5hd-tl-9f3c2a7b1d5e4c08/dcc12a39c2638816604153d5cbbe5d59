@@ -21,6 +21,17 @@ class GenerateCalendarTests(unittest.TestCase):
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].summary, "PP: vs Dodgers (2 tix)")
 
+    def test_hides_tickets_when_not_going(self) -> None:
+        values = [
+            ["ID", "Date", "Time", "team", "Going?", "#Tix"],
+            ["2", "03-30", "1:10 PM", "Athletics", "FALSE", "2"],
+        ]
+
+        events = list(generate_calendar._iter_events(values))
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].summary, "TV: vs Athletics")
+
 
 if __name__ == "__main__":
     unittest.main()

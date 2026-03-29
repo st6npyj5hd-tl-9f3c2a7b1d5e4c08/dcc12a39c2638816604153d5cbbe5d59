@@ -93,7 +93,7 @@ def _build_summary(uid: str, team: str, going: bool, tix: str) -> str:
         uid_num = 0
     home_away = "vs" if uid_num < 82 else "@"
     summary = f"{prefix}: {home_away} {team}".strip()
-    if tix:
+    if going and tix:
         summary = f"{summary} ({tix} tix)"
     return summary
 
