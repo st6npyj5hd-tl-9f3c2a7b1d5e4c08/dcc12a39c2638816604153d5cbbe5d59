@@ -19,7 +19,7 @@ class GenerateCalendarTests(unittest.TestCase):
         events = list(generate_calendar._iter_events(values))
 
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0].summary, "PP (2): vs Dodgers")
+        self.assertEqual(events[0].summary, "PP: vs Dodgers (2 tix)")
 
 
 if __name__ == "__main__":

@@ -87,14 +87,15 @@ class HeaderLookup:
 def _build_summary(uid: str, team: str, going: bool, tix: str) -> str:
     prefix = "PP" if going else "TV"
     tix = tix.strip()
-    if tix:
-        prefix = f"{prefix} ({tix})"
     try:
         uid_num = int(uid)
     except ValueError:
         uid_num = 0
     home_away = "vs" if uid_num < 82 else "@"
-    return f"{prefix}: {home_away} {team}".strip()
+    summary = f"{prefix}: {home_away} {team}".strip()
+    if tix:
+        summary = f"{summary} ({tix} tix)"
+    return summary
 
 
 def _fetch_sheet_values() -> List[List[str]]:
