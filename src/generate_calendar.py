@@ -78,6 +78,12 @@ class GameEvent:
     description: Optional[str]
 
 
+@dataclass(frozen=True)
+class HeaderLookup:
+    exact: Dict[str, int]
+    normalized: Dict[str, int]
+
+
 def _build_summary(uid: str, team: str, going: bool, tix: str) -> str:
     prefix = "PP" if going else "TV"
     tix = tix.strip()
@@ -111,13 +117,36 @@ def _fetch_sheet_values() -> List[List[str]]:
     return values
 
 
-def _build_header_map(header_row: List[str]) -> Dict[str, int]:
-    header_map: Dict[str, int] = {}
+def _build_header_lookup(header_row: List[str]) -> HeaderLookup:
+    exact_map: Dict[str, int] = {}
+    normalized_map: Dict[str, int] = {}
     for idx, raw in enumerate(header_row):
-        key = _normalize_header(raw)
-        if key:
-            header_map[key] = idx
-    return header_map
+        raw_text = str(raw).strip()
+        if not raw_text:
+            continue
+
+        exact_key = raw_text.lower()
+        normalized_key = _normalize_header(raw_text)
+
+        exact_map.setdefault(exact_key, idx)
+        if normalized_key:
+            normalized_map.setdefault(normalized_key, idx)
+
+    return HeaderLookup(exact=exact_map, normalized=normalized_map)
+
+
+def _find_column_index(header_lookup: HeaderLookup, *candidates: str) -> Optional[int]:
+    for candidate in candidates:
+        exact_idx = header_lookup.exact.get(candidate.strip().lower())
+        if exact_idx is not None:
+            return exact_idx
+
+    for candidate in candidates:
+        normalized_idx = header_lookup.normalized.get(_normalize_header(candidate))
+        if normalized_idx is not None:
+            return normalized_idx
+
+    return None
 
 
 def _get_cell(row: List[str], idx: int) -> str:
@@ -125,38 +154,42 @@ def _get_cell(row: List[str], idx: int) -> str:
         return ""
     return row[idx]
 
-def _get_optional_cell(row: List[str], header_map: Dict[str, int], key: str) -> str:
-    candidates = [key]
+def _get_optional_cell(row: List[str], header_lookup: HeaderLookup, key: str) -> str:
+    candidates: List[str] = []
     if key in OPTIONAL_COLUMNS:
         candidates.append(OPTIONAL_COLUMNS[key])
-    for candidate in candidates:
-        idx = header_map.get(_normalize_header(candidate))
-        if idx is not None:
-            value = _get_cell(row, idx)
-            return str(value).strip()
+    candidates.append(key)
+
+    idx = _find_column_index(header_lookup, *candidates)
+    if idx is not None:
+        value = _get_cell(row, idx)
+        return str(value).strip()
     return ""
 
 
 def _iter_events(values: List[List[str]]) -> Iterable[GameEvent]:
-    header_map = _build_header_map(values[0])
+    header_lookup = _build_header_lookup(values[0])
+    required_indexes: Dict[str, int] = {}
 
-    for key in REQUIRED_COLUMNS:
-        if key not in header_map:
+    for key, column_name in REQUIRED_COLUMNS.items():
+        idx = _find_column_index(header_lookup, column_name, key)
+        if idx is None:
             raise RuntimeError(
-                f"Missing required column '{REQUIRED_COLUMNS[key]}' in sheet header"
+                f"Missing required column '{column_name}' in sheet header"
             )
+        required_indexes[key] = idx
 
     for row in values[1:]:
-        uid = _get_cell(row, header_map["id"]).strip()
+        uid = _get_cell(row, required_indexes["id"]).strip()
         if not uid:
             continue
 
-        date_str = _get_cell(row, header_map["date"]).strip()
-        time_str = _get_cell(row, header_map["time"]).strip()
-        team = _get_cell(row, header_map["team"]).strip()
-        going_raw = _get_cell(row, header_map["going"]).strip()
-        giveaway = _get_optional_cell(row, header_map, "giveaway")
-        tix = _get_optional_cell(row, header_map, "tix")
+        date_str = _get_cell(row, required_indexes["date"]).strip()
+        time_str = _get_cell(row, required_indexes["time"]).strip()
+        team = _get_cell(row, required_indexes["team"]).strip()
+        going_raw = _get_cell(row, required_indexes["going"]).strip()
+        giveaway = _get_optional_cell(row, header_lookup, "giveaway")
+        tix = _get_optional_cell(row, header_lookup, "tix")
 
         if not date_str or not time_str or not team:
             raise RuntimeError(f"Row for UID {uid} missing required fields")
